@@ -1,0 +1,6 @@
+# Copy to backend.hcl and fill in, then:  terraform init -backend-config=backend.hcl
+# backend.hcl is gitignored.
+
+bucket = "my-terraform-state-bucket"
+key    = "eks/terraform.tfstate"
+region = "eu-north-1"

@@ -1,0 +1,30 @@
+# Terraform state — contains resource attributes in plaintext, never commit
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+
+# Local backend/provider artifacts
+.terraform/
+.terraform.tfstate.lock.info
+
+# Backend config with account-specific values
+backend.hcl
+
+# Variable files that commonly hold secrets
+*.tfvars
+*.tfvars.json
+!example.tfvars
+
+# Saved plans can contain sensitive values
+tfplan
+*.tfplan
+
+# Keep the lock file — it pins provider versions across machines
+!.terraform.lock.hcl
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
