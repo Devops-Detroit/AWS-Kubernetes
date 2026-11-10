@@ -34,7 +34,7 @@ permissions:
   contents: read
 
 env:
-  TF_WORKING_DIR: terraform/aws
+  TF_WORKING_DIR: terraform_eks_2026/terraform/aws
 
 jobs:
   terraform:
@@ -42,7 +42,7 @@ jobs:
     environment: ${{ inputs.environment }}
     defaults:
       run:
-        working-directory: terraform/aws
+        working-directory: terraform_eks_2026/terraform/aws
 
     steps:
       - name: Checkout
@@ -115,4 +115,4 @@ jobs:
         run: aws eks update-kubeconfig --region ${{ inputs.region }} --name ${{ vars.CLUSTER_NAME || 'eks-cluster' }}
 
       - name: Apply manifests
-        run: kubectl apply -f kubernetes/manifests/
+        run: kubectl apply -f terraform_eks_2026/kubernetes/manifests/
