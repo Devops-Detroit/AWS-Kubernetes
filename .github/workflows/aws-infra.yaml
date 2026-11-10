@@ -1,0 +1,118 @@
+name: Pipeline For AWS Infrastructure
+
+# Was .github/workflow/ (singular) — GitHub only reads .github/workflows/,
+# so the original file never ran.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Target environment
+        required: true
+        options: [QA, Stage, Prod]
+        default: Stage
+      region:
+        type: string
+        description: AWS region
+        required: true
+        default: eu-north-1
+      action:
+        type: choice
+        description: Terraform action
+        required: true
+        options: [plan, apply, destroy]
+        default: plan
+      apply_manifests:
+        type: boolean
+        description: Apply the Kubernetes manifests after a successful apply
+        required: false
+        default: false
+
+permissions:
+  id-token: write   # for OIDC auth to AWS
+  contents: read
+
+env:
+  TF_WORKING_DIR: terraform/aws
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: terraform/aws
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Prefer OIDC over long-lived keys: set AWS_ROLE_ARN as a repo
+          # variable and drop the two secrets below.
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.region }}
+
+      # Terraform is not guaranteed to be on the runner image.
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ inputs.environment }}/eks/terraform.tfstate" \
+            -backend-config="region=${{ vars.TF_STATE_REGION || inputs.region }}"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -input=false -var="region=${{ inputs.region }}" -out=tfplan
+
+      - name: Terraform apply
+        if: inputs.action == 'apply'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Terraform destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -input=false -auto-approve -var="region=${{ inputs.region }}"
+
+  manifests:
+    needs: [terraform]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    if: inputs.action == 'apply' && inputs.apply_manifests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.region }}
+
+      # kubectl is not in Ubuntu's apt repos — the original `apt-get install
+      # kubectl` could never have succeeded.
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region ${{ inputs.region }} --name ${{ vars.CLUSTER_NAME || 'eks-cluster' }}
+
+      - name: Apply manifests
+        run: kubectl apply -f kubernetes/manifests/
